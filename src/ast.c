@@ -2,7 +2,7 @@
 
 int main(int argc, char *argv[])
 {
-	AST *tree = parse("3 + 4 * (2 + 1)");
+	AST *tree = parse("(281 - 394 + 53 + (9 - 7 * 3) - 1) / 2");
 	printf("Resultado: %d\n", eval(tree)); // 15	
 	return 0;
 }

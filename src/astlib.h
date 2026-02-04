@@ -25,7 +25,9 @@ typedef struct AST {
     struct AST *right;
 } AST;
 
-
+AST *parse_expr();
+AST *parse_term();
+AST *parse_factor();
 
 AST *new_node(NodeType type, int value, AST *left, AST *right) {
     AST *node = malloc(sizeof(AST));
@@ -52,8 +54,6 @@ int parse_number() {
     return value;
 }
 
-
-AST *parse_expr();
 
 AST *parse_factor() {
     skip_spaces();
@@ -129,11 +129,5 @@ int eval(AST *node) {
     }
     return 0;
 }
-
-
-
-
-
-
 
 #endif
