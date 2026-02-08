@@ -7,11 +7,21 @@
 #ifndef _INC_STDLIB
 #include <stdlib.h>
 #endif
+#ifndef _STDBOOL_H
+#include <stdbool.h>
+#endif
+#ifndef _INC_STRING
+#include <string.h>
+#endif
 
 const char *input;
+const char *input_save;
+bool is_asm_proc = false;
+bool is_expression = false;
 
 typedef enum {
     NODE_NUM,
+    NODE_IDENT,
     NODE_ADD,
     NODE_SUB,
     NODE_MUL,
@@ -20,7 +30,8 @@ typedef enum {
 
 typedef struct AST {
     NodeType type;
-    int value;
+    int value;          // usado se NODE_NUM
+    char *ident;        // usado se NODE_IDENT
     struct AST *left;
     struct AST *right;
 } AST;
@@ -29,13 +40,32 @@ AST *parse_expr();
 AST *parse_term();
 AST *parse_factor();
 
-AST *new_node(NodeType type, int value, AST *left, AST *right) {
-    AST *node = malloc(sizeof(AST));
-    node->type = type;
-    node->value = value;
-    node->left = left;
-    node->right = right;
-    return node;
+AST *new_num(int value) {
+    AST *n = malloc(sizeof(AST));
+    n->type = NODE_NUM;
+    n->value = value;
+    n->ident = NULL;
+    n->left = n->right = NULL;
+    return n;
+}
+
+AST *new_ident(char *name) {
+    AST *n = malloc(sizeof(AST));
+    n->type = NODE_IDENT;
+    n->value = 0;
+    n->ident = name;
+    n->left = n->right = NULL;
+    return n;
+}
+
+AST *new_op(NodeType type, AST *l, AST *r) {
+    AST *n = malloc(sizeof(AST));
+    n->type = type;
+    n->value = 0;
+    n->ident = NULL;
+    n->left = l;
+    n->right = r;
+    return n;
 }
 
 
@@ -43,6 +73,17 @@ void skip_spaces() {
     while (*input == ' ')
         input++;
 }
+
+int is_alpha(char c) {
+    return (c >= 'A' && c <= 'Z') ||
+           (c >= 'a' && c <= 'z') ||
+            c == '_';
+}
+
+int is_alnum(char c) {
+    return is_alpha(c) || (c >= '0' && c <= '9');
+}
+
 
 
 int parse_number() {
@@ -54,21 +95,45 @@ int parse_number() {
     return value;
 }
 
+char *parse_ident() {
+    const char *start = input;
+    while (is_alnum(*input))
+        input++;
+
+    int len = input - start;
+    char *name = malloc(len + 1);
+    memcpy(name, start, len);
+    name[len] = '\0';
+
+    return name;
+}
+
+
 
 AST *parse_factor() {
     skip_spaces();
 
+    // parênteses
     if (*input == '(') {
-        input++;
+    	is_expression = true;
+        input++; // '('
         AST *node = parse_expr();
         skip_spaces();
-        input++;
+        input++; // ')'
         return node;
     }
 
+    // identificador
+    if (is_alpha(*input)) {
+        char *name = parse_ident();
+        return new_ident(name);
+    }
+
+    // número
     int value = parse_number();
-    return new_node(NODE_NUM, value, NULL, NULL);
+    return new_num(value);
 }
+
 
 
 AST *parse_term() {
@@ -78,11 +143,13 @@ AST *parse_term() {
         skip_spaces();
 
         if (*input == '*') {
+        	is_expression = true;
             input++;
-            node = new_node(NODE_MUL, 0, node, parse_factor());
+            node = new_op(NODE_MUL, node, parse_factor());
         } else if (*input == '/') {
+        	is_expression = true;
             input++;
-            node = new_node(NODE_DIV, 0, node, parse_factor());
+            node = new_op(NODE_DIV, node, parse_factor());
         } else {
             break;
         }
@@ -90,6 +157,7 @@ AST *parse_term() {
 
     return node;
 }
+
 
 
 AST *parse_expr() {
@@ -99,11 +167,13 @@ AST *parse_expr() {
         skip_spaces();
 
         if (*input == '+') {
+        	is_expression = true;
             input++;
-            node = new_node(NODE_ADD, 0, node, parse_term());
+            node = new_op(NODE_ADD, node, parse_term());
         } else if (*input == '-') {
+        	is_expression = true;
             input++;
-            node = new_node(NODE_SUB, 0, node, parse_term());
+            node = new_op(NODE_SUB, node, parse_term());
         } else {
             break;
         }
@@ -113,21 +183,62 @@ AST *parse_expr() {
 }
 
 
+
 AST *parse(const char *str) {
+	is_expression = false;
     input = str;
+    input_save = str;
     return parse_expr();
 }
 
 
-int eval(AST *node) {
+int eval(AST *node, bool* state) {
+	// TODO: Criar mais operações e fazer parsing de hexadecimais
     switch (node->type) {
         case NODE_NUM: return node->value;
-        case NODE_ADD: return eval(node->left) + eval(node->right);
-        case NODE_SUB: return eval(node->left) - eval(node->right);
-        case NODE_MUL: return eval(node->left) * eval(node->right);
-        case NODE_DIV: return eval(node->left) / eval(node->right);
+        case NODE_ADD: return eval(node->left, state) + eval(node->right, state);
+        case NODE_SUB: return eval(node->left, state) - eval(node->right, state);
+        case NODE_MUL: return eval(node->left, state) * eval(node->right, state);
+        case NODE_DIV: return eval(node->left, state) / eval(node->right, state);
+        case NODE_IDENT: {
+        	int number_res = 0;
+        	#ifdef __WR80ASM_H__
+        		char* formula = strdup(node->ident);
+        		char* original_formula = strdup(input_save);
+        		
+    			*state = recursive_def(&formula, &number_res);
+    			if(*state == false && is_asm_proc && is_expression){
+    				*state = calc(formula, &number_res, is_asm_proc);
+				}
+				
+				if(curr_refer){
+					if(curr_refer->isExpression)
+    					curr_refer->expression = original_formula;
+    			}else
+    				free(original_formula);
+				free(formula);
+    		#else
+    			*state = false;
+    		#endif
+			return number_res;
+		}
     }
     return 0;
+}
+
+
+void free_ast(AST *node) {
+    if (node == NULL)
+        return;
+
+    free_ast(node->left);
+    free_ast(node->right);
+
+    if (node->type == NODE_IDENT && node->ident != NULL) {
+        free(node->ident);
+    }
+
+    free(node);
 }
 
 #endif
